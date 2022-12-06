@@ -159,12 +159,8 @@ def parse_bot_message(message: dict, channel_id: str, client: WebClient) -> dict
     """
     parsed_message = {}
     parsed_message["url"] = f"https://delphi-org.slack.com/archives/{channel_id}/p{message['ts'].replace('.', '')}"
-    parsed_message["title"] = message["attachments"][0]["title"].split(": ")[1]
+    parsed_message["title"] = replace_user_id(message["attachments"][0]["title"].split(": ")[1], client)
     parsed_message["reported_by"] = message["username"]
     parsed_message["reported_date"] = parse_timestamp(float(message["ts"]))
     parsed_message["description"] = replace_user_id(" ".join(message["attachments"][0]["text"].split("\n")[2:]).strip(), client)
     return parsed_message
-
-
-
-
