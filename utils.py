@@ -47,7 +47,9 @@ def get_user_info(client: WebClient, user_id: str) -> str:
 
     user_info = client.users_info(user=user_id)
     try:
-        return user_info["user"]["profile"]["email"]
+        real_name = user_info["user"]["profile"]["real_name"]
+        email = user_info["user"]["profile"]["email"]
+        return f"{real_name} ({email})"
     except KeyError as e:
         return "<anonymous>"
 
@@ -66,7 +68,7 @@ def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: s
 
     parsed_replies = []
     replies = client.conversations_replies(channel=channel_id, ts=parent_message_ts)
-    for reply in replies["messages"]:
+    for reply in replies["messages"][1:]: # To skip first thread message which is the original message
         parsed_replies.append({
             "author": get_user_info(client, reply["user"]),
             "created": parse_timestamp(float(reply["ts"])),
