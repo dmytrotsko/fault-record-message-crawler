@@ -1,4 +1,5 @@
 import os
+import cProfile
 
 import slack
 from dotenv import load_dotenv
@@ -31,7 +32,7 @@ def main():
                 replies = get_message_replies(
                     client=client,
                     channel_id=CHANNEL_ID,
-                    parent_message_ts=message.get("ts")
+                    parent_message_ts=message["ts"]
                 )
                 parsed_message["updates"] = replies[1:]
         else:
@@ -39,6 +40,13 @@ def main():
                 if "successful" in message["attachments"][0]["title"].lower():
                     continue # To skip messages about successful runs
                 parsed_message = parse_bot_message(message, CHANNEL_ID, client)
+                if message.get("reply_count") is not None and message.get("reply_count") > 1:
+                    replies = get_message_replies(
+                        client=client,
+                        channel_id=CHANNEL_ID,
+                        parent_message_ts=message["ts"]
+                    )
+                    parsed_message["updates"] = replies
             except KeyError:
                 logger.error(f"Could not parse bot message. Message ts: {message['ts']}")
                 continue
