@@ -1,5 +1,7 @@
 from datetime import datetime as dtime
 import re
+import os
+from dotenv import load_dotenv
 import logging
 import requests
 from typing import Dict, List
@@ -8,7 +10,11 @@ import pytz
 from slack import WebClient
 from slack.errors import SlackApiError
 
+
 logger = logging.getLogger("slack-fault-scrapper")
+
+load_dotenv()
+EMOJI_FLAG = os.getenv("EMOJI_FLAG")
 
 
 def parse_timestamp(ts: float) -> str:
@@ -22,6 +28,10 @@ def parse_timestamp(ts: float) -> str:
     """
     dt = dtime.strftime(dtime.fromtimestamp(ts, pytz.UTC), "%Y-%m-%d")
     return dt
+
+
+def reactions_list(message: dict):
+    return [reaction["name"] for reaction in message["reactions"]] if message.get("reactions") else []
 
 
 def get_user_info(client: WebClient, user_id: str) -> str:
@@ -67,13 +77,14 @@ def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: s
     return parsed_replies
 
 
-def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int) -> List[Dict]:
+def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: int = 0) -> List[Dict]:
     """Fetch the conversaion history of particular channel;
 
     Args:
         client (WebClient): Slack WebClient object
         channel_id (str): id of the channel to get messages from
         msg_limit (int): limit of the messages to get per 1 API call
+        oldest (int, optional): timestamp of the oldest message to start from
 
     Returns:
         (List[Dict]): list of the scraped messages
@@ -81,6 +92,7 @@ def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int)
     try:
         result = client.conversations_history(
             channel=channel_id,
+            oldest=oldest,
             limit=msg_limit)
         all_messages = []
         all_messages += result["messages"]
@@ -172,14 +184,16 @@ def process_conversation_history(conversation_history: List, client: WebClient, 
         if message.get("subtype", "").startswith("channel_"):
             continue
         if message.get("subtype", "") != "bot_message":
-            parsed_message = parse_user_message(message, channel_id, client)
-            if message.get("reply_count") is not None:
-                replies = get_message_replies(
-                    client=client,
-                    channel_id=channel_id,
-                    parent_message_ts=message["ts"]
-                )
-                parsed_message["updates"] = replies[1:]
+            if EMOJI_FLAG in reactions_list(message):
+                parsed_message = parse_user_message(message, channel_id, client)
+                if message.get("reply_count") is not None:
+                    replies = get_message_replies(
+                        client=client,
+                        channel_id=channel_id,
+                        parent_message_ts=message["ts"]
+                    )
+                    parsed_message["updates"] = replies
+                    yield parsed_message
         else:
             try:
                 if "successful" in message["attachments"][0]["title"].lower():
@@ -192,10 +206,10 @@ def process_conversation_history(conversation_history: List, client: WebClient, 
                         parent_message_ts=message["ts"]
                     )
                     parsed_message["updates"] = replies
+                    yield parsed_message
             except KeyError:
                 logger.error(f"Could not parse bot message. Message ts: {message['ts']}")
                 continue
-        yield parsed_message
 
 
 def post_fault_record(message: dict, record_post_url: str):
@@ -212,7 +226,7 @@ def post_fault_record(message: dict, record_post_url: str):
         "signals": []
     }
     response = requests.post(url=record_post_url, json=payload)
-    return response.json().get("fault_id")
+    # return response.json().get("fault_id")
 
 
 def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_url: str):
