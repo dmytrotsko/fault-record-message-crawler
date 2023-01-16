@@ -7,6 +7,7 @@ import requests
 from typing import Dict, List
 
 import pytz
+import marko
 from slack import WebClient
 from slack.errors import SlackApiError
 
@@ -15,6 +16,8 @@ logger = logging.getLogger("slack-fault-scrapper")
 
 load_dotenv()
 EMOJI_FLAG = os.getenv("EMOJI_FLAG")
+
+CLEANR = re.compile('<.*?>')
 
 
 def parse_timestamp(ts: float) -> str:
@@ -75,6 +78,20 @@ def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: s
             "description": replace_user_id(reply["text"], client)
         })
     return parsed_replies
+
+
+def remove_markdown(text: str):
+    cleantext = re.sub(CLEANR, '', text)
+    return cleantext
+
+
+def extract_source_signal_pair(raw_text: str):
+    source_regexp = "<em>.*<\/em>"
+    signal_regexp = "<code>.*<\/code>"
+    converted_text = marko.convert(raw_text).replace("<p>", "").replace("</p>", "")
+    source = remove_markdown(list(filter(None, re.findall(source_regexp, converted_text)))[-1])
+    source_signal_list = list(source + ":" + remove_markdown(el).split(":")[0] for el in filter(None, re.findall(signal_regexp, converted_text)))
+    return source_signal_list if source_signal_list and len(source_signal_list[0].split(":")) == 2 else []
 
 
 def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: int = 0) -> List[Dict]:
@@ -166,6 +183,7 @@ def parse_bot_message(message: dict, channel_id: str, client: WebClient) -> dict
     parsed_message["reported_by"] = message["username"]
     parsed_message["reported_date"] = parse_timestamp(float(message["ts"]))
     parsed_message["description"] = replace_user_id(" ".join(message["attachments"][0]["text"].split("\n")[2:]).strip(), client)
+    parsed_message["signals"] = extract_source_signal_pair(message["attachments"][0]["text"])
     return parsed_message
 
 
@@ -213,26 +231,42 @@ def process_conversation_history(conversation_history: List, client: WebClient, 
 
 
 def post_fault_record(message: dict, record_post_url: str):
+    """Creates Fault Record from Slack message
+
+    Args:
+        message (dict): parsed Slack message
+        record_post_url (str): fault-record API url to post Record
+
+    Returns:
+        response: json response which contains Record info
+    """
     payload = {
         "DVC_id": 1,
         "name": message["title"],
         "desc": message["description"],
-        "author": 1,  # message["reported_by"],
+        "user_id": 1,  # message["reported_by"],
         "first_occurance": message["reported_date"],
         "last_occurance": message["reported_date"],
         "record_date": message["reported_date"],
         "last_updated": dtime.strftime(dtime.now(), "%Y-%m-%d"),
         "published": False,
-        "signals": []
+        "signals": message.get("signals")
     }
     response = requests.post(url=record_post_url, json=payload)
-    # return response.json().get("fault_id")
+    return response.json().get("fault_id")
 
 
 def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_url: str):
+    """Creates Fault Record Update from Slack message replies
+
+    Args:
+        updates (List[Dict]): list of Slack message replies
+        fault_id (int): Fault Record id
+        update_post_url (str): fault-record API url to post Update
+    """
     for update in updates:
         payload = {
-            "author": 1,  # update["author"]
+            "user_id": 1,  # update["author"]
             "desc": update["description"],
             "fault_id": fault_id,
             "fault_status": "Test Status",
