@@ -19,12 +19,8 @@ parser = argparse.ArgumentParser(
     description="The program scrapes Slack messages for Fault records from different Slack channels.",
 )
 parser.add_argument("-c", "--channel_id", help="Slack channel ID")
-parser.add_argument("-o", "--oldest_ts", help="Only messages after this Unix timestamp will be included in results.")
 args = parser.parse_args()
 
-if len(sys.argv) == 1:
-    parser.print_help()
-    sys.exit(1)
 
 if not "-c" or "--channel_id" in sys.argv:
     print("\nSlack channel_id should be provided. Please, check input and try again.\n")
@@ -32,7 +28,7 @@ if not "-c" or "--channel_id" in sys.argv:
     sys.exit(1)
 
 channel_id = args.channel_id
-oldest_timestamp = args.oldest_ts or 0
+oldest_timestamp = 0
 
 
 def main():
