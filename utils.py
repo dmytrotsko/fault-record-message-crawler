@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from datetime import datetime as dtime
+from datetime import timedelta
 from typing import Dict, List
 
 import marko
@@ -58,8 +59,8 @@ def get_user_info(client: WebClient, user_id: str, return_email: bool = False) -
         return "<anonymous>"
 
 
-def get_user_id(user_email: str) -> int:
-    base_url = "http://localhost:5000/api/v1/users"
+def get_user_id(user_email: str, fault_record_api_url: str) -> int:
+    base_url = f"http://{fault_record_api_url}/api/v1/users"
     query_filter = f'"field": "email", "op": "=", "value": "{user_email}"'
     result_url = f"{base_url}?filters=[{{{query_filter}}}]"
     try:
@@ -110,8 +111,8 @@ def extract_source_signal_pair(raw_text: str):
         return source, signals
 
 
-def get_signals_url(source: str, signals: List[str]):
-    base_url = "http://localhost:5000/api/v1/signals"
+def get_signals_url(source: str, fault_record_api_url: str, signals: List[str]):
+    base_url = f"http://{fault_record_api_url}/api/v1/signals"
     source_filter = f'"field": "source", "op": "=", "value": "{source}"'
     signals_str = '"' + '", "'.join(signals) + '"'
     signals_filter = f'"field": "signal", "op": "in", "value": [{signals_str}]'
@@ -130,7 +131,7 @@ def get_signal_ids(message: str) -> List:
         return []
 
 
-def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: int = 0) -> List[Dict]:
+def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: float = 0) -> List[Dict]:
     """Fetch the conversaion history of particular channel;
 
     Args:
@@ -293,6 +294,7 @@ def post_fault_record(message: dict, record_post_url: str):
         "last_occurance": message["reported_date"],
         "record_date": message["reported_date"],
         "signals": message["signals"],
+        "source_link": message["url"],
     }
     headers = {"Content-type": "application/json", "Accept": "text/plain"}
     response = requests.post(url=record_post_url, data=json.dumps(payload), headers=headers)
@@ -333,3 +335,47 @@ def get_oldest_ts(file_name: str):
             return oldest_timetsmp
     except FileNotFoundError:
         return 0
+
+
+def get_fault_records(fault_record_api_url: str, from_date_days: int):
+    base_url = f"{fault_record_api_url}/api/v1/faults"
+    from_record_date = dtime.now() - timedelta(days=from_date_days)
+    from_record_date_str = dtime.strftime(from_record_date, "%Y-%m-%d")
+    query_filter = f'"field": "record_date", "op": ">", "value": "{from_record_date_str}"'
+    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    response = requests.get(result_url).json()
+    return response
+
+
+def get_fault_record_updates(fault_record_api_url: str, fault_id: int):
+    base_url = f"{fault_record_api_url}/api/v1/updates"
+    query_filter = f'"field": "fault_id", "op": "=", "value": "{fault_id}"'
+    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    response = requests.get(result_url).json()
+    return response
+
+
+def get_message_ts_from_link(message_link: str):
+    message_ts = message_link.split("/")[-1].replace("p", "")
+    parsed_ts = f"{message_ts[:-6]}.{message_ts[-6:]}"
+    return float(parsed_ts)
+
+
+def update_replies(
+    client: WebClient,
+    channel_id: str,
+    fault_record_api_url: str,
+    update_replies_for_last_days: int,
+    fault_record_update_post_url: str,
+):
+    fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days)
+    for record in fault_records:
+        fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
+        source_links = [el.get("source_link") for el in fault_record_updates if el.get("source_link") is not None]
+        message_ts = get_message_ts_from_link(record["source_link"])
+        slack_message_replies = get_message_replies(client, channel_id, message_ts)
+        new_replies = []
+        for reply in slack_message_replies:
+            if reply.get("url") not in source_links:
+                new_replies.append(reply)
+        post_fault_record_updates(new_replies, record["fault_id"], fault_record_update_post_url)

@@ -1,30 +1,32 @@
+import argparse
+import json
+import logging
 import os
 import sys
-import json
 
 import slack
 from dotenv import load_dotenv
-import logging
-import argparse
 
 from utils import (
     get_conversation_history,
-    process_conversation_history,
+    get_oldest_ts,
     post_fault_record,
     post_fault_record_updates,
+    process_conversation_history,
     write_oldest_ts,
-    get_oldest_ts,
 )
 
 load_dotenv()
 
-logger = logging.getLogger("slack-fault-scrapper")
+logger = logging.getLogger("slack-fault-scraper")
 logger.setLevel(logging.DEBUG)
 
 SLACK_TOKEN = os.getenv("SLACK_TOKEN")
 MESSAGE_LIMIT_PER_REQUEST = os.getenv("MESSAGE_LIMIT_PER_REQUEST")
-FAULT_RECORD_POST_URL = os.getenv("FAULT_RECORD_POST_URL")
-FAULT_RECORD_UPDATE_POST_URL = os.getenv("FAULT_RECORD_UPDATE_POST_URL")
+FAULT_RECORD_API_URL = os.getenv("FAULT_RECORD_API_URL")
+FAULT_RECORD_POST_URL = os.path.join(FAULT_RECORD_API_URL, "api/v1/faults")
+FAULT_RECORD_UPDATE_POST_URL = os.path.join(FAULT_RECORD_API_URL, "api/v1/updates")
+UPDATE_REPLIES_FOR_DAYS = os.getenv("UPDATE_REPLIES_FOR_DAYS")
 
 
 def parse_args():
