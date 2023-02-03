@@ -8,6 +8,14 @@ logger.setLevel(logging.DEBUG)
 
 
 def get_oldest_ts(file_name: str):
+    """Get Slack message oldest timestamp from the file
+
+    Args:
+        file_name (str): file name including extension (ex. .txt, .json, etc.)
+
+    Returns:
+        str: Slack oldest message timestamp from file
+    """
     logger.info("Trying to get oldest slack message timestamp from the file: {file_name}")
     try:
         with open(file_name, "r") as f:
@@ -19,11 +27,22 @@ def get_oldest_ts(file_name: str):
 
 
 def write_oldest_ts(file_name: str, oldest_ts: str):
+    """Writes something to a file.
+
+    Args:
+        file_name (str): file name including extension (ex. .txt, .json, etc.)
+        oldest_ts (str): Slack oldest message timestamp
+    """
     with open(file_name, "w") as f:
         f.write(oldest_ts)
 
 
 def main():
+    """
+        Cronicle workflow. Creates events for provided channels.  
+        Runs events and tracks job status to get job_end time and write it to the file called <channel_name>.txt
+        Deletes event after run.
+    """
     channels = {"system-monitoring": "C01LZ3A2UMU", "outages": "C0130CSQRN3"}
     for _, v in channels.items():
         logger.info(f"Creating event for channel: {v}")

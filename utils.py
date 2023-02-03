@@ -38,6 +38,14 @@ def parse_timestamp(ts: float) -> str:
 
 
 def remove_emojis(data):
+    """Removes emojis from the string.
+
+    Args:
+        data (_type_): string or text that containts emojis
+
+    Returns:
+        _type_: string or text with removed emojis
+    """
     emoj = re.compile(
         "["
         "\U0001F600-\U0001F64F"  # emoticons
@@ -65,6 +73,14 @@ def remove_emojis(data):
 
 
 def reactions_list(message: dict) -> List:
+    """Get reactions on Slack message (emojis)
+
+    Args:
+        message (dict): Slack message
+
+    Returns:
+        List: list of emojis names that were used in the message
+    """
     return [reaction["name"] for reaction in message["reactions"]] if message.get("reactions") else []
 
 
@@ -89,6 +105,16 @@ def get_user_info(client: WebClient, user_id: str, return_email: bool = False) -
 
 
 def get_user_id(user_email: str, fault_record_api_url: str) -> int:
+    """Get user id by email. Sends request to the fault-record API with email filter.
+
+
+    Args:
+        user_email (str): user email
+        fault_record_api_url (str): fault record API url
+
+    Returns:
+        int: In case there is no user with given email, returns 1, which is ID of the anonymous user.
+    """
     base_url = f"{fault_record_api_url}/api/v1/users"
     query_filter = f'"field": "email", "op": "=", "value": "{user_email}"'
     result_url = f"{base_url}?filters=[{{{query_filter}}}]"
@@ -126,11 +152,27 @@ def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: s
 
 
 def remove_markdown(text: str):
+    """Removes html markdown from the text
+
+    Args:
+        text (str): raw text which contains html tags
+
+    Returns:
+        str: text without html tags
+    """
     cleantext = re.sub(CLEANR, "", text)
     return cleantext
 
 
 def extract_source_signal_pair(raw_text: str):
+    """Extracts (source, signal) pairs from Slack message.
+
+    Args:
+        raw_text (str): Slack message
+
+    Returns:
+        str, list: source name, list of signals for that source
+    """
     source_regexp = "<em>.*<\/em>"
     signal_regexp = "<code>.*<\/code>"
     converted_text = marko.convert(raw_text).replace("<p>", "").replace("</p>", "")
@@ -141,6 +183,16 @@ def extract_source_signal_pair(raw_text: str):
 
 
 def get_signals_url(source: str, fault_record_api_url: str, signals: List[str]):
+    """Get url to query (source, signal) pairs from fault-record API
+
+    Args:
+        source (str): signal source
+        fault_record_api_url (str): fault-record API url
+        signals (List[str]): list of signals
+
+    Returns:
+        str: compiled url with filters to get existing (source, signal) pairs from failt-record API
+    """
     base_url = f"{fault_record_api_url}/api/v1/signals"
     source_filter = f'"field": "source", "op": "=", "value": "{source}"'
     signals_str = '"' + '", "'.join(signals) + '"'
@@ -150,6 +202,14 @@ def get_signals_url(source: str, fault_record_api_url: str, signals: List[str]):
 
 
 def get_signal_ids(message: str) -> List:
+    """Get signal ids from Slack message
+
+    Args:
+        message (str): Slack message that may contain signals
+
+    Returns:
+        List: list of signal ids from fault-record API
+    """
     try:
         source, signals = extract_source_signal_pair(message)
         query_signals_url = get_signals_url(source, signals)
@@ -359,11 +419,26 @@ def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_ur
 
 
 def write_to_file(file_name: str, data: str):
+    """Writes data to the text file. Is created to store oldest_timestamp for Slack messages scraper
+    and resume_page for GitHub issues scraper
+
+    Args:
+        file_name (str): file name with extension (ex. .txt, .json, etc.)
+        data (str): data to be written
+    """
     with open(file_name, "w") as f:
         f.write(data)
 
 
 def read_from_file(file_name: str):
+    """Reads data from the given file.
+
+    Args:
+        file_name (str): file name with extension (ex. .txt, .json, etc.)
+
+    Returns:
+        _type_: first line from the text file
+    """
     try:
         with open(file_name, "r") as f:
             return f.readline()
@@ -372,6 +447,16 @@ def read_from_file(file_name: str):
 
 
 def get_fault_records(fault_record_api_url: str, from_date_days: int, source: str):
+    """Get fault Records from fault-record API for given timedelta
+
+    Args:
+        fault_record_api_url (str): fault-record API url
+        from_date_days (int): days timedelta
+        source (str): source name "github" or "slack"
+
+    Returns:
+        List[Dict]: list of fault-records
+    """
     result = []
     base_url = f"{fault_record_api_url}/api/v1/faults"
     from_record_date = dtime.now() - timedelta(days=from_date_days)
@@ -387,6 +472,15 @@ def get_fault_records(fault_record_api_url: str, from_date_days: int, source: st
 
 
 def get_fault_record_updates(fault_record_api_url: str, fault_id: int):
+    """Get Fault Record Updates
+
+    Args:
+        fault_record_api_url (str): fault-record API url
+        fault_id (int): fault id
+
+    Returns:
+        List[Dict] (json): fault record updates
+    """
     base_url = f"{fault_record_api_url}/api/v1/updates"
     query_filter = f'"field": "fault_id", "op": "=", "value": "{fault_id}"'
     result_url = f"{base_url}?filters=[{{{query_filter}}}]"
@@ -395,6 +489,14 @@ def get_fault_record_updates(fault_record_api_url: str, fault_id: int):
 
 
 def get_message_ts_from_link(message_link: str):
+    """Extract Slack message timestamp from source_link
+
+    Args:
+        message_link (str): Fault Record `source_link` column
+
+    Returns:
+        float: Slack message timestamp
+    """
     message_ts = message_link.split("/")[-1].replace("p", "")
     parsed_ts = f"{message_ts[:-6]}.{message_ts[-6:]}"
     return float(parsed_ts)
@@ -407,6 +509,15 @@ def update_slack_replies(
     update_replies_for_last_days: int,
     fault_record_update_post_url: str,
 ):
+    """Get new Fault Record Updates from Slack message replies
+
+    Args:
+        client (WebClient): Slack WebClient
+        channel_id (str): Slack channel ID
+        fault_record_api_url (str): fault-record API url
+        update_replies_for_last_days (int): days timedelta
+        fault_record_update_post_url (str): fault-record API post Update url
+    """
     fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days, "slack")
     for record in fault_records:
         fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
@@ -421,14 +532,34 @@ def update_slack_replies(
 
 
 def get_github_user(ghapi: GhApi, username: str, return_email: bool = False):
+    """Get github user by email
+
+    Args:
+        ghapi (GhApi): github api instance
+        username (str): github username
+        return_email (bool, optional): return user email or "user_name user_email" string. Defaults to False.
+
+    Returns:
+        _type_: email or "user_name user_email"
+    """
     user_info = ghapi.users.get_by_username(username)
     user_name = user_info["name"] if user_info["name"] else user_info["login"]
     user_email = f"({user_info['email']}" if user_info["email"] else ""
-    user = f"{user_name} {user_email}".strip()
+    user = f"{user_name} ({user_email})".strip()
     return user if not return_email else user_email
 
 
 def parse_github_issue(ghapi: GhApi, issue: dict, fault_record_api_url: str):
+    """Parse GitHub issue
+
+    Args:
+        ghapi (GhApi): github api instance
+        issue (dict): raw github issue
+        fault_record_api_url (str): fault-record API url
+
+    Returns:
+        _type_: parsed issue with mapped columns
+    """
     parsed_issue = {}
     parsed_issue["url"] = issue["html_url"]
     parsed_issue["title"] = remove_emojis(issue["title"])
@@ -440,6 +571,16 @@ def parse_github_issue(ghapi: GhApi, issue: dict, fault_record_api_url: str):
 
 
 def parse_github_issue_comments(ghapi: GhApi, issue_comments: List[Dict], fault_record_api_url: str):
+    """Parse GitHub issue comments
+
+    Args:
+        ghapi (GhApi): github api instance
+        issue_comments (List[Dict]): list of github issue comments
+        fault_record_api_url (str): fault-record API url
+
+    Returns:
+        List[Dict]: parsed github issue comments
+    """
     parsed_comments = []
     for comment in issue_comments:
         parsed_comment = {}
@@ -461,6 +602,16 @@ def update_github_comments(
     repo: str,
     fault_record_update_post_url: str,
 ):
+    """Get new Fault Record Updates from GitHub issue comments
+
+    Args:
+        fault_record_api_url (str): fault-record API url
+        update_replies_for_last_days (int): days timedeltat
+        ghapi (GhApi): github API instance
+        owner (str): GitHub repository owner
+        repo (str): GitHub repository name
+        fault_record_update_post_url (str): fault-record API post Update url
+    """
     fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days, "github")
     for record in fault_records:
         fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])

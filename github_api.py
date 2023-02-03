@@ -81,6 +81,19 @@ def list_issues(api: GhApi, owner: str, repository: str, api_page_size: int, asc
 
 
 def action_collect(ghapi: GhApi, owner: str, repo: str, api_page_size: int, fault_record_api_url: str, resume_page: int = None):
+    """Collect GitHub issues
+
+    Args:
+        ghapi (GhApi): github API instance
+        owner (str): GitHub repository owner
+        repo (str): GitHub repository name
+        api_page_size (int): number of records per page (default=30, max=100)
+        fault_record_api_url (str): fault-record API url
+        resume_page (int, optional): start from page number. Defaults to None.
+
+    Returns:
+        List[Dict]: list of parsed GitHub issues
+    """
     issues_list = list_issues(ghapi, owner, repo, api_page_size, ascending=True)
     parsed_issues = []
     try:
