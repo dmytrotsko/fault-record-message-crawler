@@ -9,11 +9,12 @@ from dotenv import load_dotenv
 
 from utils import (
     get_conversation_history,
-    get_oldest_ts,
+    read_from_file,
     post_fault_record,
     post_fault_record_updates,
     process_conversation_history,
-    write_oldest_ts,
+    write_to_file,
+    update_slack_replies
 )
 
 load_dotenv()
@@ -64,22 +65,29 @@ def main():
         oldest_timestamp = args.oldest
     else:
         channel_id = parse_cronicle_params()
-    oldest_timestamp = get_oldest_ts(f"{channel_id}.txt") or oldest_timestamp
+    oldest_timestamp = read_from_file(f"{channel_id}.txt") or oldest_timestamp
     logger.info(
         f"Starting scraping Slack messages.\nChannel ID: {channel_id}.\tOldest message timestamp: {oldest_timestamp}."
     )
     client = slack.WebClient(token=SLACK_TOKEN)
+    update_slack_replies(
+        client,
+        channel_id,
+        FAULT_RECORD_API_URL,
+        UPDATE_REPLIES_FOR_DAYS,
+        FAULT_RECORD_UPDATE_POST_URL
+    )
     conversation_history = get_conversation_history(
         client=client, channel_id=channel_id, msg_limit=MESSAGE_LIMIT_PER_REQUEST, oldest=oldest_timestamp
     )
     logger.info("Processing conversation history.")
-    processed_messages, oldest_message_ts = process_conversation_history(conversation_history, client, channel_id)
+    processed_messages, oldest_message_ts = process_conversation_history(conversation_history, client, channel_id, FAULT_RECORD_API_URL)
     logger.info("Posting messages to fault-record API.")
     for message in processed_messages:
         fault_id = post_fault_record(message, FAULT_RECORD_POST_URL)
         if message.get("updates"):
             post_fault_record_updates(message["updates"], fault_id, FAULT_RECORD_UPDATE_POST_URL)
-    write_oldest_ts(f"{channel_id}.txt", oldest_message_ts)
+    write_to_file(f"{channel_id}.txt", oldest_message_ts)
 
 
 if __name__ == "__main__":
