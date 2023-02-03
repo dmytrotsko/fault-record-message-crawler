@@ -1,23 +1,25 @@
-from datetime import datetime as dtime
-import re
-import os
-from dotenv import load_dotenv
+import json
 import logging
-import requests
+import os
+import re
+from datetime import datetime as dtime
+from datetime import timedelta
 from typing import Dict, List
 
-import pytz
 import marko
+import pytz
+import requests
+from dotenv import load_dotenv
 from slack import WebClient
 from slack.errors import SlackApiError
 
-
 logger = logging.getLogger("slack-fault-scrapper")
+logger.setLevel(logging.DEBUG)
 
 load_dotenv()
 EMOJI_FLAG = os.getenv("EMOJI_FLAG")
 
-CLEANR = re.compile('<.*?>')
+CLEANR = re.compile("<.*?>")
 
 
 def parse_timestamp(ts: float) -> str:
@@ -33,11 +35,11 @@ def parse_timestamp(ts: float) -> str:
     return dt
 
 
-def reactions_list(message: dict):
+def reactions_list(message: dict) -> List:
     return [reaction["name"] for reaction in message["reactions"]] if message.get("reactions") else []
 
 
-def get_user_info(client: WebClient, user_id: str) -> str:
+def get_user_info(client: WebClient, user_id: str, return_email: bool = False) -> str:
     """Get user info (name, email)
 
     Args:
@@ -52,12 +54,23 @@ def get_user_info(client: WebClient, user_id: str) -> str:
     try:
         real_name = user_info["user"]["profile"]["real_name"]
         email = user_info["user"]["profile"]["email"]
-        return f"{real_name} ({email})"
+        return f"{real_name} ({email})" if not return_email else email
     except KeyError:
         return "<anonymous>"
 
 
-def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: str) -> list:
+def get_user_id(user_email: str, fault_record_api_url: str) -> int:
+    base_url = f"http://{fault_record_api_url}/api/v1/users"
+    query_filter = f'"field": "email", "op": "=", "value": "{user_email}"'
+    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    try:
+        user = requests.get(result_url).json()[0]
+        return int(user.get("user_id"))
+    except IndexError:
+        return 1  # TODO: should be removed. As we don't have real users it returns id == 1
+
+
+def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: str) -> List:
     """Fetch message replies
 
     Args:
@@ -72,16 +85,19 @@ def get_message_replies(client: WebClient, channel_id: str, parent_message_ts: s
     parsed_replies = []
     replies = client.conversations_replies(channel=channel_id, ts=parent_message_ts)
     for reply in replies["messages"][1:]:  # To skip first thread message which is the original message
-        parsed_replies.append({
-            "author": get_user_info(client, reply["user"]),
-            "created": parse_timestamp(float(reply["ts"])),
-            "description": replace_user_id(reply["text"], client)
-        })
+        parsed_replies.append(
+            {
+                "author": get_user_id(get_user_info(client, reply["user"], True)),
+                "url": f"https://delphi-org.slack.com/archives/{channel_id}/p{reply['ts'].replace('.', '')}?thread_ts={reply['thread_ts']}&cid={channel_id}",
+                "created": parse_timestamp(float(reply["ts"])),
+                "description": replace_user_id(reply["text"], client),
+            }
+        )
     return parsed_replies
 
 
 def remove_markdown(text: str):
-    cleantext = re.sub(CLEANR, '', text)
+    cleantext = re.sub(CLEANR, "", text)
     return cleantext
 
 
@@ -90,11 +106,32 @@ def extract_source_signal_pair(raw_text: str):
     signal_regexp = "<code>.*<\/code>"
     converted_text = marko.convert(raw_text).replace("<p>", "").replace("</p>", "")
     source = remove_markdown(list(filter(None, re.findall(source_regexp, converted_text)))[-1])
-    source_signal_list = list(source + ":" + remove_markdown(el).split(":")[0] for el in filter(None, re.findall(signal_regexp, converted_text)))
-    return source_signal_list if source_signal_list and len(source_signal_list[0].split(":")) == 2 else []
+    signals = list(remove_markdown(el).split(":")[0] for el in filter(None, re.findall(signal_regexp, converted_text)))
+    if source and signals:
+        return source, signals
 
 
-def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: int = 0) -> List[Dict]:
+def get_signals_url(source: str, fault_record_api_url: str, signals: List[str]):
+    base_url = f"http://{fault_record_api_url}/api/v1/signals"
+    source_filter = f'"field": "source", "op": "=", "value": "{source}"'
+    signals_str = '"' + '", "'.join(signals) + '"'
+    signals_filter = f'"field": "signal", "op": "in", "value": [{signals_str}]'
+    result_url = f"{base_url}?filters=[{{{source_filter}}},{{{signals_filter}}}]"
+    return result_url
+
+
+def get_signal_ids(message: str) -> List:
+    try:
+        source, signals = extract_source_signal_pair(message)
+        query_signals_url = get_signals_url(source, signals)
+        signals = requests.get(query_signals_url)
+        signal_ids = [sig.get("signal_id") for sig in signals.json()]
+        return signal_ids
+    except Exception:
+        return []
+
+
+def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int, oldest: float = 0) -> List[Dict]:
     """Fetch the conversaion history of particular channel;
 
     Args:
@@ -106,18 +143,14 @@ def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int,
     Returns:
         (List[Dict]): list of the scraped messages
     """
+    logger.info("Trying to get conversation history.")
     try:
-        result = client.conversations_history(
-            channel=channel_id,
-            oldest=oldest,
-            limit=msg_limit)
+        result = client.conversations_history(channel=channel_id, oldest=oldest, limit=msg_limit)
         all_messages = []
         all_messages += result["messages"]
-        while result['has_more']:
+        while result["has_more"]:
             result = client.conversations_history(
-                channel=channel_id,
-                cursor=result['response_metadata']['next_cursor'],
-                limit=msg_limit
+                channel=channel_id, cursor=result["response_metadata"]["next_cursor"], limit=msg_limit
             )
             all_messages += result["messages"]
         return all_messages[::-1]  # Return messages in the right order
@@ -159,8 +192,8 @@ def parse_user_message(message: dict, channel_id: str, client: WebClient) -> dic
 
     parsed_message = {}
     parsed_message["url"] = f"https://delphi-org.slack.com/archives/{channel_id}/p{message['ts'].replace('.', '')}"
-    parsed_message["title"] = replace_user_id(message["text"].split('.')[0], client)
-    parsed_message["reported_by"] = get_user_info(client, message["user"])
+    parsed_message["title"] = replace_user_id(message["text"].split(".")[0], client)
+    parsed_message["reported_by"] = get_user_id(get_user_info(client, message["user"], True))
     parsed_message["reported_date"] = parse_timestamp(float(message["ts"]))
     parsed_message["description"] = replace_user_id(message["text"], client)
     return parsed_message
@@ -180,10 +213,14 @@ def parse_bot_message(message: dict, channel_id: str, client: WebClient) -> dict
     parsed_message = {}
     parsed_message["url"] = f"https://delphi-org.slack.com/archives/{channel_id}/p{message['ts'].replace('.', '')}"
     parsed_message["title"] = replace_user_id(message["attachments"][0]["title"].split(": ")[1], client)
-    parsed_message["reported_by"] = message["username"]
+    parsed_message[
+        "reported_by"
+    ] = 1  # message["username"] # TODO: should be replaced with better logic. Maybe create some user for those records which don't have user as author
     parsed_message["reported_date"] = parse_timestamp(float(message["ts"]))
-    parsed_message["description"] = replace_user_id(" ".join(message["attachments"][0]["text"].split("\n")[2:]).strip(), client)
-    parsed_message["signals"] = extract_source_signal_pair(message["attachments"][0]["text"])
+    parsed_message["description"] = replace_user_id(
+        " ".join(message["attachments"][0]["text"].split("\n")[2:]).strip(), client
+    )
+    parsed_message["signals"] = get_signal_ids(message["attachments"][0]["text"])
     return parsed_message
 
 
@@ -198,36 +235,45 @@ def process_conversation_history(conversation_history: List, client: WebClient, 
     Yields:
         parsed_message (dict): parsed Slack message with replies
     """
-    for message in conversation_history:
-        if message.get("subtype", "").startswith("channel_"):
+    parsed_messages = []
+    for i in range(len(conversation_history)):
+        logger.info(f"Processing message {i+1}/{len(conversation_history)+1}")
+        if conversation_history[i].get("subtype", "").startswith("channel_"):
+            logger.info("Channel notification message. Skipping.")
             continue
-        if message.get("subtype", "") != "bot_message":
-            if EMOJI_FLAG in reactions_list(message):
-                parsed_message = parse_user_message(message, channel_id, client)
-                if message.get("reply_count") is not None:
+        if conversation_history[i].get("subtype", "") != "bot_message":
+            if EMOJI_FLAG in reactions_list(conversation_history[i]):
+                logger.info("Parsing user message.")
+                parsed_message = parse_user_message(conversation_history[i], channel_id, client)
+                if conversation_history[i].get("reply_count") is not None:
+                    logger.info("Getting message replies.")
                     replies = get_message_replies(
-                        client=client,
-                        channel_id=channel_id,
-                        parent_message_ts=message["ts"]
+                        client=client, channel_id=channel_id, parent_message_ts=conversation_history[i]["ts"]
                     )
                     parsed_message["updates"] = replies
-                    yield parsed_message
+                parsed_messages.append(parsed_message)
         else:
             try:
-                if "successful" in message["attachments"][0]["title"].lower():
+                if "successful" in conversation_history[i]["attachments"][0]["title"].lower():
+                    logger.info("Message about successfull run. Skipping.")
                     continue  # To skip messages about successful runs
-                parsed_message = parse_bot_message(message, channel_id, client)
-                if message.get("reply_count") is not None and message.get("reply_count") > 1:
+                logger.info("Parsing bot message.")
+                parsed_message = parse_bot_message(conversation_history[i], channel_id, client)
+                if (
+                    conversation_history[i].get("reply_count") is not None
+                    and conversation_history[i].get("reply_count") > 1
+                ):
+                    logger.info("Getting message replies.")
                     replies = get_message_replies(
-                        client=client,
-                        channel_id=channel_id,
-                        parent_message_ts=message["ts"]
+                        client=client, channel_id=channel_id, parent_message_ts=conversation_history[i]["ts"]
                     )
                     parsed_message["updates"] = replies
-                    yield parsed_message
-            except KeyError:
-                logger.error(f"Could not parse bot message. Message ts: {message['ts']}")
+                parsed_messages.append(parsed_message)
+            except KeyError as e:
+                logger.error(f"Could not parse bot message. Message ts: {conversation_history[i]['ts']}\nReason: {e}")
                 continue
+    oldest_message_ts = conversation_history[-1]["ts"]
+    return parsed_messages, oldest_message_ts
 
 
 def post_fault_record(message: dict, record_post_url: str):
@@ -241,18 +287,17 @@ def post_fault_record(message: dict, record_post_url: str):
         response: json response which contains Record info
     """
     payload = {
-        "DVC_id": 1,
         "name": message["title"],
         "desc": message["description"],
-        "user_id": 1,  # message["reported_by"],
+        "user_id": message["reported_by"],
         "first_occurance": message["reported_date"],
         "last_occurance": message["reported_date"],
         "record_date": message["reported_date"],
-        "last_updated": dtime.strftime(dtime.now(), "%Y-%m-%d"),
-        "published": False,
-        "signals": message.get("signals")
+        "signals": message["signals"],
+        "source_link": message["url"],
     }
-    response = requests.post(url=record_post_url, json=payload)
+    headers = {"Content-type": "application/json", "Accept": "text/plain"}
+    response = requests.post(url=record_post_url, data=json.dumps(payload), headers=headers)
     return response.json().get("fault_id")
 
 
@@ -266,10 +311,71 @@ def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_ur
     """
     for update in updates:
         payload = {
-            "user_id": 1,  # update["author"]
+            "user_id": update["author"],
             "desc": update["description"],
             "fault_id": fault_id,
             "fault_status": "Test Status",
-            "record_date": update["created"]
+            "record_date": update["created"],
+            "source_link": update["url"],
         }
         requests.post(url=update_post_url, json=payload)
+
+
+def write_oldest_ts(file_name: str, oldest_ts: str):
+    with open(file_name, "w") as f:
+        f.write(oldest_ts)
+
+
+def get_oldest_ts(file_name: str):
+    logger.info("Trying to get oldest slack message timestamp from the file: {file_name}")
+    try:
+        with open(file_name, "r") as f:
+            oldest_timetsmp = f.readline()
+            logger.info(f"Returning oldest timetsmp: {oldest_timetsmp}")
+            return oldest_timetsmp
+    except FileNotFoundError:
+        return 0
+
+
+def get_fault_records(fault_record_api_url: str, from_date_days: int):
+    base_url = f"{fault_record_api_url}/api/v1/faults"
+    from_record_date = dtime.now() - timedelta(days=from_date_days)
+    from_record_date_str = dtime.strftime(from_record_date, "%Y-%m-%d")
+    query_filter = f'"field": "record_date", "op": ">", "value": "{from_record_date_str}"'
+    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    response = requests.get(result_url).json()
+    return response
+
+
+def get_fault_record_updates(fault_record_api_url: str, fault_id: int):
+    base_url = f"{fault_record_api_url}/api/v1/updates"
+    query_filter = f'"field": "fault_id", "op": "=", "value": "{fault_id}"'
+    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    response = requests.get(result_url).json()
+    return response
+
+
+def get_message_ts_from_link(message_link: str):
+    message_ts = message_link.split("/")[-1].replace("p", "")
+    parsed_ts = f"{message_ts[:-6]}.{message_ts[-6:]}"
+    return float(parsed_ts)
+
+
+def update_replies(
+    client: WebClient,
+    channel_id: str,
+    fault_record_api_url: str,
+    update_replies_for_last_days: int,
+    fault_record_update_post_url: str,
+):
+    fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days)
+    for record in fault_records:
+        fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
+        source_links = [el.get("source_link") for el in fault_record_updates if el.get("source_link") is not None]
+        message_ts = get_message_ts_from_link(record["source_link"])
+        slack_message_replies = get_message_replies(client, channel_id, message_ts)
+        new_replies = []
+        for reply in slack_message_replies:
+            if reply.get("url") not in source_links:
+                new_replies.append(reply)
+        post_fault_record_updates(new_replies, record["fault_id"], fault_record_update_post_url)
