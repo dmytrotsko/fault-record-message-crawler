@@ -1,5 +1,4 @@
 import json
-import logging
 import os
 import re
 from datetime import datetime as dtime
@@ -14,9 +13,7 @@ from dotenv import load_dotenv
 from slack import WebClient
 from slack.errors import SlackApiError
 from ghapi.core import GhApi
-
-logger = logging.getLogger("slack-fault-scrapper")
-logger.setLevel(logging.DEBUG)
+from logzero import logger
 
 load_dotenv()
 EMOJI_FLAG = os.getenv("EMOJI_FLAG")
@@ -459,7 +456,7 @@ def get_fault_records(fault_record_api_url: str, from_date_days: int, source: st
     """
     result = []
     base_url = f"{fault_record_api_url}/api/v1/faults"
-    from_record_date = dtime.now() - timedelta(days=from_date_days)
+    from_record_date = dtime.now() - timedelta(days=int(from_date_days))
     from_record_date_str = dtime.strftime(from_record_date, "%Y-%m-%d")
     query_filter = f'"field": "record_date", "op": ">", "value": "{from_record_date_str}"'
     result_url = f"{base_url}?filters=[{{{query_filter}}}]"
