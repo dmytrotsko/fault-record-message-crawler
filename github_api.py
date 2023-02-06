@@ -112,7 +112,7 @@ def action_collect(ghapi: GhApi, owner: str, repo: str, api_page_size: int, faul
                     parsed_comments = parse_github_issue_comments(ghapi, issue_comments, fault_record_api_url)
                     parsed_issue["comments"] = parsed_comments
                     parsed_issues.append(parsed_issue)
-        write_to_file(f"{repo}-{owner}.txt", count)
+        write_to_file(f"{repo}-{owner}.txt", str(count))
         return parsed_issues
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
