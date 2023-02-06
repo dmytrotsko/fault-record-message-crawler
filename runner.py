@@ -1,10 +1,6 @@
 from cronicle_wrapper import create_event, run_event, get_job_status, delete_event
 import time
-import logging
-
-
-logger = logging.getLogger("slack-scraper-runner")
-logger.setLevel(logging.DEBUG)
+from logzero import logger
 
 
 def get_oldest_ts(file_name: str):
