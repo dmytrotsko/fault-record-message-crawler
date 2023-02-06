@@ -1,6 +1,5 @@
 import argparse
-import json
-import logging
+from logzero import logger
 import os
 import sys
 
@@ -19,9 +18,6 @@ from utils import (
 
 load_dotenv()
 
-logger = logging.getLogger("slack-fault-scraper")
-logger.setLevel(logging.DEBUG)
-
 SLACK_TOKEN = os.getenv("SLACK_TOKEN")
 MESSAGE_LIMIT_PER_REQUEST = os.getenv("MESSAGE_LIMIT_PER_REQUEST")
 FAULT_RECORD_API_URL = os.getenv("FAULT_RECORD_API_URL")
@@ -37,13 +33,6 @@ def parse_args():
     )
     parser.add_argument("-c", "--channel_id", help="Slack channel ID")
     parser.add_argument("-o", "--oldest", default=0, help="Slack message oldest timestamp")
-    parser.add_argument(
-        "-cr",
-        "--cronicle_run",
-        choices=[0, 1],
-        default=1,
-        help="Cronicle run. Enabled by default. If you want to run without cronicle, please set to 0.",
-    )
     args = parser.parse_args()
     if not "-c" or "--channel_id" in sys.argv and not args.cronicle_run:
         logger.error("\nSlack channel_id should be provided. Please, check input and try again.\n")
@@ -52,19 +41,10 @@ def parse_args():
     return args
 
 
-def parse_cronicle_params():
-    cronicle_params = json.load(sys.stdin)["params"]
-    channel_id = cronicle_params.get("CHANNEL_ID")
-    return channel_id
-
-
 def main():
     args = parse_args()
-    if not args.cronicle_run:
-        channel_id = args.channel_id
-        oldest_timestamp = args.oldest
-    else:
-        channel_id = parse_cronicle_params()
+    channel_id = args.channel_id
+    oldest_timestamp = args.oldest
     oldest_timestamp = read_from_file(f"{channel_id}.txt") or oldest_timestamp
     logger.info(
         f"Starting scraping Slack messages.\nChannel ID: {channel_id}.\tOldest message timestamp: {oldest_timestamp}."
