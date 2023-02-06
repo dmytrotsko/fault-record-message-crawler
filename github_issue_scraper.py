@@ -33,13 +33,6 @@ def parse_args():
     )
     parser.add_argument("-o", "--owner", help="GitHub repository owner")
     parser.add_argument("-r", "--repo", help="GitHub repository name")
-    parser.add_argument(
-        "-cr",
-        "--cronicle_run",
-        choices=[0, 1],
-        default=0,
-        help="Cronicle run. Enabled by default. If you want to run without cronicle, please set to 0.",
-    )
     args = parser.parse_args()
     return args
 
