@@ -332,7 +332,7 @@ def process_conversation_history(
         if conversation_history[i].get("subtype", "") != "bot_message":
             if EMOJI_FLAG in reactions_list(conversation_history[i]):
                 logger.info("Parsing user message.")
-                parsed_message = parse_user_message(conversation_history[i], channel_id, client)
+                parsed_message = parse_user_message(conversation_history[i], channel_id, client, fault_record_api_url)
                 if conversation_history[i].get("reply_count") is not None:
                     logger.info("Getting message replies.")
                     replies = get_message_replies(
@@ -387,7 +387,7 @@ def post_fault_record(message: dict, record_post_url: str):
         "first_occurance": message["reported_date"],
         "last_occurance": message["reported_date"],
         "record_date": message["reported_date"],
-        "signals": message["signals"],
+        "signals": message.get("signals"),
         "source_link": message["url"],
     }
     headers = {"Content-type": "application/json", "Accept": "text/plain"}
