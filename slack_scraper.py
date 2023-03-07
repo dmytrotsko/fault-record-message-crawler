@@ -2,6 +2,7 @@ import argparse
 from logzero import logger
 import os
 import sys
+from pathlib import Path
 
 import slack
 from dotenv import load_dotenv
@@ -50,13 +51,14 @@ def main():
         f"Starting scraping Slack messages.\nChannel ID: {channel_id}.\tOldest message timestamp: {oldest_timestamp}."
     )
     client = slack.WebClient(token=SLACK_TOKEN)
-    update_slack_replies(
-        client,
-        channel_id,
-        FAULT_RECORD_API_URL,
-        UPDATE_REPLIES_FOR_DAYS,
-        FAULT_RECORD_UPDATE_POST_URL
-    )
+    if Path(f"{channel_id}.txt").is_file():
+        update_slack_replies(
+            client,
+            channel_id,
+            FAULT_RECORD_API_URL,
+            UPDATE_REPLIES_FOR_DAYS,
+            FAULT_RECORD_UPDATE_POST_URL
+        )
     conversation_history = get_conversation_history(
         client=client, channel_id=channel_id, msg_limit=MESSAGE_LIMIT_PER_REQUEST, oldest=oldest_timestamp
     )
