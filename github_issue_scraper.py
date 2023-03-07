@@ -1,6 +1,5 @@
 import os
 import argparse
-from logzero import logger
 from dotenv import load_dotenv
 from github_api import init_api, action_collect
 from utils import post_fault_record, post_fault_record_updates, update_github_comments, read_from_file
@@ -42,7 +41,7 @@ def main():
     owner = args.owner
     repo = args.repo
     ghapi = init_api(GITHUB_TOKEN, API_LOGGING_FREQUENCY, API_QUOTA_THRESHOLD)
-    update_github_comments(FAULT_RECORD_API_URL, int(UPDATE_REPLIES_FOR_DAYS), ghapi, owner, repo, FAULT_RECORD_UPDATE_POST_URL)
+    # update_github_comments(FAULT_RECORD_API_URL, int(UPDATE_REPLIES_FOR_DAYS), ghapi, owner, repo, FAULT_RECORD_UPDATE_POST_URL)
     resume_page = read_from_file(f"{owner}-{repo}.txt")
     issues = action_collect(ghapi, owner, repo, API_PAGE_SIZE, FAULT_RECORD_API_URL, resume_page)
     for issue in issues:
