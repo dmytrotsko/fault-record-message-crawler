@@ -9,11 +9,12 @@ from urllib.parse import urlparse
 import marko
 import pytz
 import requests
+import retry
 from dotenv import load_dotenv
-from slack import WebClient
-from slack.errors import SlackApiError
 from ghapi.core import GhApi
 from logzero import logger
+from slack import WebClient
+from slack.errors import SlackApiError
 
 load_dotenv()
 EMOJI_FLAG = os.getenv("EMOJI_FLAG")
@@ -81,6 +82,7 @@ def reactions_list(message: dict) -> List:
     return [reaction["name"] for reaction in message["reactions"]] if message.get("reactions") else []
 
 
+@retry(SlackApiError, delay=5, tries=3)
 def get_user_info(client: WebClient, user_id: str, return_email: bool = False) -> str:
     """Get user info (name, email)
 
@@ -229,7 +231,6 @@ def get_conversation_history(client: WebClient, channel_id: str, msg_limit: int,
     Returns:
         (List[Dict]): list of the scraped messages
     """
-    logger.info("Trying to get conversation history.")
     try:
         result = client.conversations_history(channel=channel_id, oldest=oldest, limit=msg_limit)
         all_messages = []
@@ -380,6 +381,7 @@ def post_fault_record(message: dict, record_post_url: str):
     Returns:
         response: json response which contains Record info
     """
+    logger.info("Posting new Fault Record.")
     payload = {
         "name": message["title"],
         "desc": message["description"],
@@ -392,6 +394,10 @@ def post_fault_record(message: dict, record_post_url: str):
     }
     headers = {"Content-type": "application/json", "Accept": "text/plain"}
     response = requests.post(url=record_post_url, data=json.dumps(payload), headers=headers)
+    if response.status_code == 200:
+        logger.info(f"Request ended with status {response.status_code}. Fault Record #{response.json().get('fault_id')} has been successfully created.")
+    else:
+        logger.error(f"Something went wrong. Fault Record from {message['url']} was not created.")
     return response.json().get("fault_id")
 
 
@@ -403,6 +409,7 @@ def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_ur
         fault_id (int): Fault Record id
         update_post_url (str): fault-record API url to post Update
     """
+    logger.info(f"Posting Fault Record updates for #{fault_id}")
     for update in updates:
         payload = {
             "user_id": update["author"],
@@ -412,7 +419,11 @@ def post_fault_record_updates(updates: List[Dict], fault_id: int, update_post_ur
             "record_date": update["created"],
             "source_link": update["url"],
         }
-        requests.post(url=update_post_url, json=payload)
+        response = requests.post(url=update_post_url, json=payload)
+        if response.status_code == 200:
+            logger.info("Fault Record update has been successfully posted.")
+        else:
+            logger.error(f"Something went wrong. Could not post Fault Record update for Fault #{fault_id} (slack message url -> {update['url']}).")
 
 
 def write_to_file(file_name: str, data: str):
