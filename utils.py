@@ -527,16 +527,19 @@ def update_slack_replies(
         fault_record_update_post_url (str): fault-record API post Update url
     """
     fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days, "slack")
-    for record in fault_records:
-        fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
-        source_links = [el.get("source_link") for el in fault_record_updates]
-        message_ts = get_message_ts_from_link(record["source_link"])
-        slack_message_replies = get_message_replies(client, channel_id, message_ts)
-        new_replies = []
-        for reply in slack_message_replies:
-            if reply.get("url") not in source_links:
-                new_replies.append(reply)
-        post_fault_record_updates(new_replies, record["fault_id"], fault_record_update_post_url)
+    if fault_records:
+        for record in fault_records:
+            fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
+            source_links = [el.get("source_link") for el in fault_record_updates]
+            message_ts = get_message_ts_from_link(record["source_link"])
+            slack_message_replies = get_message_replies(client, channel_id, message_ts)
+            new_replies = []
+            for reply in slack_message_replies:
+                if reply.get("url") not in source_links:
+                    new_replies.append(reply)
+            post_fault_record_updates(new_replies, record["fault_id"], fault_record_update_post_url)
+    else:
+        raise Exception("No faults found. Skipping update.")
 
 
 def get_github_user(ghapi: GhApi, username: str, return_email: bool = False):
@@ -621,13 +624,16 @@ def update_github_comments(
         fault_record_update_post_url (str): fault-record API post Update url
     """
     fault_records = get_fault_records(fault_record_api_url, update_replies_for_last_days, "github")
-    for record in fault_records:
-        fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
-        source_links = [el.get("source_link") for el in fault_record_updates]
-        issue_number = urlparse(record["source_link"]).path.split("/")[-1]
-        comments = ghapi.issues.list_comments(owner=owner, repo=repo, issue_number=issue_number)
-        new_comments = []
-        for comment in comments:
-            if comment.get("html_url") not in source_links:
-                new_comments.append()
-        post_fault_record_updates(new_comments, record["fault_id"], fault_record_update_post_url)
+    if fault_records:
+        for record in fault_records:
+            fault_record_updates = get_fault_record_updates(fault_record_api_url, record["fault_id"])
+            source_links = [el.get("source_link") for el in fault_record_updates]
+            issue_number = urlparse(record["source_link"]).path.split("/")[-1]
+            comments = ghapi.issues.list_comments(owner=owner, repo=repo, issue_number=issue_number)
+            new_comments = []
+            for comment in comments:
+                if comment.get("html_url") not in source_links:
+                    new_comments.append()
+            post_fault_record_updates(new_comments, record["fault_id"], fault_record_update_post_url)
+    else:
+        raise Exception("No faults found. Skipping update.")

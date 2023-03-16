@@ -52,7 +52,7 @@ def main():
     )
     client = slack.WebClient(token=SLACK_TOKEN)
     try:
-        logger.info(f"Start updating slack message replies, starting from {oldest_timestamp}.")
+        logger.info("Start updating slack message replies.")
         update_slack_replies(
             client, channel_id, FAULT_RECORD_API_URL, UPDATE_REPLIES_FOR_DAYS, FAULT_RECORD_UPDATE_POST_URL
         )
