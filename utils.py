@@ -331,7 +331,7 @@ def process_conversation_history(
             logger.info("Channel notification message. Skipping.")
             continue
         if conversation_history[i].get("subtype", "") != "bot_message":
-            if EMOJI_FLAG in reactions_list(conversation_history[i]):
+            if EMOJI_FLAG in reactions_list(conversation_history[i]) or channel_id == "C0130CSQRN3":
                 logger.info("Parsing user message.")
                 parsed_message = parse_user_message(conversation_history[i], channel_id, client, fault_record_api_url)
                 if conversation_history[i].get("reply_count") is not None:
