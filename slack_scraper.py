@@ -14,7 +14,7 @@ from utils import (
     post_fault_record_updates,
     process_conversation_history,
     write_to_file,
-    update_slack_replies
+    update_slack_replies,
 )
 
 load_dotenv()
@@ -48,22 +48,27 @@ def main():
     oldest_timestamp = args.oldest
     oldest_timestamp = read_from_file(f"{channel_id}.txt") or oldest_timestamp
     logger.info(
-        f"Starting scraping Slack messages.\nChannel ID: {channel_id}.\tOldest message timestamp: {oldest_timestamp}."
+        f"Start scraping Slack messages.\nChannel ID: {channel_id}.\tOldest message timestamp: {oldest_timestamp}."
     )
     client = slack.WebClient(token=SLACK_TOKEN)
-    if Path(f"{channel_id}.txt").is_file():
+    try:
+        logger.info("Start updating slack message replies.")
         update_slack_replies(
-            client,
-            channel_id,
-            FAULT_RECORD_API_URL,
-            UPDATE_REPLIES_FOR_DAYS,
-            FAULT_RECORD_UPDATE_POST_URL
+            client, channel_id, FAULT_RECORD_API_URL, UPDATE_REPLIES_FOR_DAYS, FAULT_RECORD_UPDATE_POST_URL
         )
+        logger.info("Slack message replies have been successfully updated.")
+    except Exception as e:
+        logger.error(f"Something went wrong while updating Slack replies. \n{e}")
+    logger.info("Pulling conversation history.")
     conversation_history = get_conversation_history(
         client=client, channel_id=channel_id, msg_limit=MESSAGE_LIMIT_PER_REQUEST, oldest=oldest_timestamp
     )
+    logger.info("Pulling conversation history has been successfully completed.")
     logger.info("Processing conversation history.")
-    processed_messages, oldest_message_ts = process_conversation_history(conversation_history, client, channel_id, FAULT_RECORD_API_URL)
+    processed_messages, oldest_message_ts = process_conversation_history(
+        conversation_history, client, channel_id, FAULT_RECORD_API_URL
+    )
+    logger.info("Processing conversation history has been susscessfully completed.")
     logger.info("Posting messages to fault-record API.")
     for message in processed_messages:
         fault_id = post_fault_record(message, FAULT_RECORD_POST_URL)
