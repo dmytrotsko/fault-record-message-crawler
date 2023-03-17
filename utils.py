@@ -114,9 +114,9 @@ def get_user_id(user_email: str, fault_record_api_url: str) -> int:
     Returns:
         int: In case there is no user with given email, returns 1, which is ID of the anonymous user.
     """
-    base_url = f"{fault_record_api_url}/api/v1/users"
+    base_url = f"{fault_record_api_url}/api/v1/users?disable_pagination=True"
     query_filter = f'"field": "email", "op": "=", "value": "{user_email}"'
-    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    result_url = f"{base_url}&filters=[{{{query_filter}}}]"
     try:
         user = requests.get(result_url).json()[0]
         return int(user.get("user_id"))
@@ -192,11 +192,11 @@ def get_signals_url(source: str, fault_record_api_url: str, signals: List[str]):
     Returns:
         str: compiled url with filters to get existing (source, signal) pairs from failt-record API
     """
-    base_url = f"{fault_record_api_url}/api/v1/signals"
+    base_url = f"{fault_record_api_url}/api/v1/signals?disable_pagination=True"
     source_filter = f'"field": "source", "op": "=", "value": "{source}"'
     signals_str = '"' + '", "'.join(signals) + '"'
     signals_filter = f'"field": "signal", "op": "in", "value": [{signals_str}]'
-    result_url = f"{base_url}?filters=[{{{source_filter}}},{{{signals_filter}}}]"
+    result_url = f"{base_url}&filters=[{{{source_filter}}},{{{signals_filter}}}]"
     return result_url
 
 
@@ -331,7 +331,7 @@ def process_conversation_history(
             logger.info("Channel notification message. Skipping.")
             continue
         if conversation_history[i].get("subtype", "") != "bot_message":
-            if EMOJI_FLAG in reactions_list(conversation_history[i]):
+            if EMOJI_FLAG in reactions_list(conversation_history[i]) or channel_id == "C0130CSQRN3":
                 logger.info("Parsing user message.")
                 parsed_message = parse_user_message(conversation_history[i], channel_id, client, fault_record_api_url)
                 if conversation_history[i].get("reply_count") is not None:
@@ -466,11 +466,11 @@ def get_fault_records(fault_record_api_url: str, from_date_days: int, source: st
         List[Dict]: list of fault-records
     """
     result = []
-    base_url = f"{fault_record_api_url}/api/v1/faults"
+    base_url = f"{fault_record_api_url}/api/v1/faults?disable_pagination=True"
     from_record_date = dtime.now() - timedelta(days=int(from_date_days))
     from_record_date_str = dtime.strftime(from_record_date, "%Y-%m-%d")
     query_filter = f'"field": "record_date", "op": ">", "value": "{from_record_date_str}"'
-    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    result_url = f"{base_url}&filters=[{{{query_filter}}}]"
     response = requests.get(result_url).json()
     for record in response:
         record_source = urlparse(record.get("source_link"))
@@ -489,9 +489,9 @@ def get_fault_record_updates(fault_record_api_url: str, fault_id: int):
     Returns:
         List[Dict] (json): fault record updates
     """
-    base_url = f"{fault_record_api_url}/api/v1/updates"
+    base_url = f"{fault_record_api_url}/api/v1/updates?disable_pagination=True"
     query_filter = f'"field": "fault_id", "op": "=", "value": "{fault_id}"'
-    result_url = f"{base_url}?filters=[{{{query_filter}}}]"
+    result_url = f"{base_url}&filters=[{{{query_filter}}}]"
     response = requests.get(result_url).json()
     return response
 
