@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import marko
 import pytz
 import requests
-import retry
+from retry import retry
 from dotenv import load_dotenv
 from ghapi.core import GhApi
 from logzero import logger
@@ -82,7 +82,7 @@ def reactions_list(message: dict) -> List:
     return [reaction["name"] for reaction in message["reactions"]] if message.get("reactions") else []
 
 
-@retry(SlackApiError, delay=5, tries=3)
+@retry(SlackApiError, tries=3, delay=5)
 def get_user_info(client: WebClient, user_id: str, return_email: bool = False) -> str:
     """Get user info (name, email)
 
